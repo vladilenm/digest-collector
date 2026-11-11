@@ -27,6 +27,7 @@ psql "$NEWSLETTER_MIGRATION_URL" -v ON_ERROR_STOP=1 -v runtime_role=digest_mail_
 - Выбрать отдельный список в `UNISENDER_LIST_ID`; форма лендинга должна подписывать в этот же список.
 - Подтвердить отправителя `UNISENDER_FROM_EMAIL` и почтовые DNS; включить double opt-in и единственное приветствие в кабинете.
 - До теста держать `UNISENDER_CAMPAIGNS_ENABLED=false`, `UNISENDER_ACCOUNT_READY=false`, `UNISENDER_PUBLIC_DELIVERY_ENABLED=false`.
+- Стандартная статистика открытий и переходов Unisender включена по выбору владельца. GA/Яндекс.Метрика выключена; фактические настройки проверять в деталях кампании и доставленном письме.
 
 ## 3. Timeweb App Platform
 

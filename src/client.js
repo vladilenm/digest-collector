@@ -110,8 +110,8 @@ export function createUnisenderClient(config, { fetchImpl = fetch, timeoutMs = 4
       const result = await post("createCampaign", {
         message_id: String(messageId),
         ...(mode === "test" ? { contacts: config.testRecipient } : {}),
-        track_read: "0",
-        track_links: "0",
+        track_read: "1",
+        track_links: "1",
         track_ga: "0",
       });
       const campaignId = isProviderId(result?.campaign_id) ? result.campaign_id : undefined;

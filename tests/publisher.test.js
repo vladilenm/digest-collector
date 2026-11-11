@@ -101,7 +101,7 @@ test("API key stays in the POST body and test campaign is scoped to the approved
     list_id: "88", subject: "Subject", body: "<p>Hi</p>", text_body: "Hi", lang: "ru", wrap_type: "skip",
   });
   assert.deepEqual(Object.fromEntries(calls[1].params), {
-    api_key: apiKey, message_id: "12", contacts: address, track_read: "0", track_links: "0", track_ga: "0",
+    api_key: apiKey, message_id: "12", contacts: address, track_read: "1", track_links: "1", track_ga: "0",
   });
 });
 
