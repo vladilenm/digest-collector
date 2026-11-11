@@ -1,0 +1,43 @@
+name: Check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-test-only
+          POSTGRES_DB: digest_collector_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NEWSLETTER_TEST_DATABASE_URL: postgresql://postgres:local-test-only@127.0.0.1:5432/digest_collector_test
+      NEWSLETTER_MIGRATION_URL: postgresql://postgres:local-test-only@127.0.0.1:5432/digest_collector_test
+      NEWSLETTER_DATABASE_SSL: "off"
+      NEWSLETTER_DATABASE_NETWORK: local
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run migrate
+      - run: npm run migrate
+      - run: npm run check
+      - run: docker build -t digest-collector:test .
+      - run: docker run --rm --network none digest-collector:test

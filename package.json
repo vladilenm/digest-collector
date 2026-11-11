@@ -1,0 +1,26 @@
+{
+  "name": "digest-collector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Сборка общего email-дайджеста из опубликованных материалов и отправка через Unisender",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node scripts/worker.mjs",
+    "once": "node scripts/worker.mjs --once",
+    "dry-run": "node scripts/worker.mjs --dry-run",
+    "migrate": "node scripts/migrate.mjs",
+    "test": "node --test",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test"
+  },
+  "dependencies": {
+    "pg": "8.23.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "eslint": "10.14.0"
+  }
+}

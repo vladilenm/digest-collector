@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 4,
+  "digestId": "018f6e76-7b42-7d66-9c18-4ff1846b03aa",
+  "topic": {
+    "id": "ai",
+    "title": "Fixture topic",
+    "language": "ru",
+    "timezone": "Europe/Moscow"
+  },
+  "publicationDate": "2026-10-13",
+  "generatedAt": "2026-10-13T06:00:00.000Z",
+  "status": "complete",
+  "sourceStats": {
+    "telegram": {
+      "total": 2,
+      "succeeded": 2,
+      "skipped": 0
+    },
+    "web": {
+      "total": 1,
+      "succeeded": 1,
+      "skipped": 0
+    }
+  },
+  "items": [
+    {
+      "eventId": "evt-fixture-1",
+      "title": "Orion: тестовое обновление",
+      "claimKind": "fact",
+      "body": [
+        {
+          "type": "paragraph",
+          "spans": [
+            {
+              "text": "Orion получил тестовое обновление. "
+            },
+            {
+              "text": "Новый режим",
+              "bold": true
+            },
+            {
+              "text": " помогает проверить редакционную подачу. "
+            },
+            {
+              "text": "Источник",
+              "url": "https://example.com/news/orion"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        {
+          "id": "models",
+          "label": "Модели"
+        }
+      ],
+      "entities": [],
+      "sources": [
+        {
+          "url": "https://example.com/news/orion",
+          "label": "Fixture source",
+          "role": "discovery"
+        }
+      ],
+      "keyQuote": {
+        "text": "Orion получил тестовое обновление",
+        "url": "https://example.com/news/orion",
+        "sourceLabel": "Fixture source"
+      },
+      "publishedAt": "2026-10-13T05:00:00.000Z",
+      "media": {
+        "type": "photo",
+        "url": "https://example.com/media/1.jpg",
+        "sourceUrl": "https://example.com/news/orion"
+      }
+    },
+    {
+      "eventId": "evt-fixture-2",
+      "title": "LocalRunner: тестовое обновление",
+      "claimKind": "fact",
+      "body": [
+        {
+          "type": "paragraph",
+          "spans": [
+            {
+              "text": "LocalRunner получил тестовое обновление. "
+            },
+            {
+              "text": "Новый режим",
+              "bold": true
+            },
+            {
+              "text": " помогает проверить редакционную подачу. "
+            },
+            {
+              "text": "Источник",
+              "url": "https://example.com/news/localrunner"
+            }
+          ]
+        }
+      ],
+      "tags": [
+        {
+          "id": "models",
+          "label": "Модели"
+        }
+      ],
+      "entities": [],
+      "sources": [
+        {
+          "url": "https://example.com/news/localrunner",
+          "label": "Fixture source",
+          "role": "discovery"
+        }
+      ],
+      "keyQuote": {
+        "text": "LocalRunner получил тестовое обновление",
+        "url": "https://example.com/news/localrunner",
+        "sourceLabel": "Fixture source"
+      },
+      "publishedAt": "2026-10-13T05:00:00.000Z",
+      "media": {
+        "type": "video",
+        "url": "https://example.com/media/2.mp4",
+        "sourceUrl": "https://example.com/news/localrunner"
+      }
+    },
+    {
+      "eventId": "evt-fixture-3",
+      "title": "AgentKit: тестовое обновление",
+      "claimKind": "fact",
+      "body": [
+        {
+          "type": "paragraph",
+          "spans": [
+            {
+              "text": "AgentKit получил тестовое обновление. "
+            },
+            {
+              "text": "Новый режим",
+              "bold": true
+            },
+            {
+              "text": " помогает проверить редакционную подачу. "
+            },
+            {
+              "text": "Источник",
+              "url": "https://example.com/news/agentkit"
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            [
+              {
+                "text": "Первый шаг"
+              }
+            ],
+            [
+              {
+                "text": "Второй шаг"
+              }
+            ]
+          ]
+        }
+      ],
+      "tags": [
+        {
+          "id": "models",
+          "label": "Модели"
+        }
+      ],
+      "entities": [],
+      "sources": [
+        {
+          "url": "https://example.com/news/agentkit",
+          "label": "Fixture source",
+          "role": "discovery"
+        }
+      ],
+      "keyQuote": {
+        "text": "AgentKit получил тестовое обновление",
+        "url": "https://example.com/news/agentkit",
+        "sourceLabel": "Fixture source"
+      },
+      "publishedAt": "2026-10-13T05:00:00.000Z"
+    }
+  ]
+}
