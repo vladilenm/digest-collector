@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { normalizePublishedDigest } from "../src/source.js";
+import { normalizeNewsletter } from "../src/source.js";
 import { commonWindow } from "../src/schedule.js";
 import { readUnisenderPublisherConfig } from "../src/config.js";
 import { createUnisenderClient } from "../src/client.js";
@@ -13,9 +13,12 @@ const firstDate = "2026-12-30";
 const now = () => new Date("2027-01-02T07:00:00Z");
 const address = "digest@irreplaceable-ai.ru";
 const apiKey = "private-test-api-key";
-const fixture = JSON.parse(readFileSync(new URL("./fixtures/published-digest-v4.json", import.meta.url), "utf8"));
-fixture.publicationDate = "2027-01-01";
-const issue = normalizePublishedDigest(fixture);
+const fixture = JSON.parse(readFileSync(new URL("./fixtures/newsletter-issue-v1.json", import.meta.url), "utf8"));
+fixture.period = { fromDate: window.fromDate, toDate: window.toDate, timezone: "Europe/Moscow", startAt: "2026-12-29T21:00:00.000Z", endBefore: "2027-01-01T21:00:00.000Z" };
+fixture.preparedAt = "2027-01-02T06:00:00.000Z";
+fixture.inputCoverage.datesWithMaterials = [window.fromDate, "2026-12-31", window.toDate];
+fixture.inputCoverage.missingDates = [];
+const issue = normalizeNewsletter(fixture);
 const env = {
   UNISENDER_FIRST_SEND_DATE: firstDate,
   UNISENDER_API_KEY: apiKey,
@@ -168,31 +171,23 @@ test("campaign client bounds provider timeouts", async () => {
   });
 });
 
-test("branded content deduplicates events and keeps source links and the only live substitution", () => {
-  const newer = structuredClone(issue);
-  newer.items[0].title = "<script>{{UnsubscribeUrl}}</script>";
-  newer.items[0].body[0].spans[0].text = "{{Email}}: редакционный текст";
-  newer.items[0].sources.push({ label: "{{Name}}", url: "https://example.org/a?x={{Email}}&y=2" });
-  newer.items[0].sources.push({ label: "unsafe", url: "https://login:password@example.org/" });
-  newer.items[0].sources.push({ label: "unsafe", url: "javascript:alert(1)" });
-  const older = { ...issue, digestId: "00000000-0000-4000-8000-000000000001", publicationDate: "2026-12-30", items: [issue.items[0]] };
-  const result = renderCommonDigest({ issues: [newer, older], ...window });
-  assert.deepEqual(result, renderCommonDigest({ issues: [newer, older], ...window }));
-  assert.equal(result.itemCount, 3);
-  assert.deepEqual(result.issueIds, [newer.digestId, older.digestId]);
+test("renders exactly the edited cards, websites and photos with one unsubscribe substitution", () => {
+  const newsletter = structuredClone(issue);
+  newsletter.cards[0].title = "Эксперимент {{Email}}";
+  const result = renderCommonDigest({ issues: [newsletter], ...window });
+  assert.equal(result.itemCount, newsletter.cards.length);
+  assert.deepEqual(result.issueIds, [newsletter.issueId]);
   assert.match(result.contentHash, /^[a-f0-9]{64}$/);
-  assert.match(result.subject, /30\.12\.2026.*01\.01\.2027/);
   assert.match(result.html, /role="presentation"/);
-  assert.match(result.html, /club\/logo-light\.png/);
-  assert.match(result.html, /&lt;script&gt;/);
-  assert.match(result.html, /https:\/\/example\.org\/a\?x=%7B%7BEmail%7D%7D&amp;y=2/);
-  assert.match(result.text, /https:\/\/example\.org\/a\?x=%7B%7BEmail%7D%7D&y=2/);
-  assert.match(result.html, /href="{{UnsubscribeUrl}}"/);
-  assert.doesNotMatch(result.html, /<script>/);
+  assert.match(result.html, /<img src=/);
+  assert.match(result.html, /width="544"/);
   for (const body of [result.html, result.text]) {
     assert.equal(body.match(/{{.*?}}/g)?.length, 1);
-    assert.doesNotMatch(body, /login:password|javascript:|Настроить частоту/);
+    assert.doesNotMatch(body, /t\.me|telegram\.org/);
   }
+  assert.throws(() => renderCommonDigest({ issues: [newsletter, newsletter], ...window }));
+  const tooMany = { ...newsletter, cards: Array(9).fill(newsletter.cards[0]) };
+  assert.throws(() => renderCommonDigest({ issues: [tooMany], ...window }));
 });
 
 function setup({ configuration = config, read, transition, provider, clock = now, claim } = {}) {
@@ -231,32 +226,50 @@ test("disabled publisher is a no-op; dry run uses only the source even without A
   const { service, calls } = setup({ configuration });
   assert.equal((await service.tick()).status, "disabled");
   assert.deepEqual(calls, []);
-  assert.deepEqual(await service.tick({ dryRun: true }), { status: "preview", dryRun: true, issueCount: 1, itemCount: 3 });
+  assert.deepEqual(await service.tick({ dryRun: true }), { status: "preview", dryRun: true, issueCount: 1, itemCount: issue.cards.length });
   assert.deepEqual(calls, [["read", { fromDate: window.fromDate, toDate: window.toDate }]]);
 });
 
-test("an empty period is journaled as skipped and invalid source data cannot look empty", async () => {
+test("waits without claiming until the prepared issue exists; invalid source never sends", async () => {
   for (const [read, expected] of [
-    [() => [], "skipped"],
-    [() => [{ ...issue, topicId: "other" }], "failed"],
-    [() => [{ ...issue, publicationDate: window.sendDate }], "failed"],
+    [() => [], "awaiting_issue"],
+    [() => [{ ...issue, topic: { ...issue.topic, id: "other" } }], "failed"],
+    [() => [{ ...issue, period: { ...issue.period, toDate: window.sendDate } }], "failed"],
+    [() => [issue, issue], "failed"],
     [() => { throw new Error(apiKey); }, "failed"],
   ]) {
     const { service, calls } = setup({ read });
     const result = await service.tick();
     assert.equal(result.status, expected);
     assert.equal(JSON.stringify(result).includes(apiKey), false);
-    assert.deepEqual(calls.map(([name]) => name), ["claim", "read", expected]);
+    assert.deepEqual(calls.map(([name]) => name), ["read"]);
   }
+  const empty = setup({ read: () => [{ ...issue, status: "empty", cards: [] }] });
+  assert.equal((await empty.service.tick()).status, "skipped");
+  assert.deepEqual(empty.calls.map(([name]) => name), ["read", "claim", "skipped"]);
+});
+
+test("a later tick sends the newly available issue exactly once", async () => {
+  let ready = false;
+  let claimed = false;
+  const { service, calls } = setup({ read: () => ready ? [issue] : [], claim: () => {
+    if (claimed) return false;
+    claimed = true; return true;
+  } });
+  assert.equal((await service.tick()).status, "awaiting_issue");
+  ready = true;
+  assert.equal((await service.tick()).status, "accepted");
+  assert.equal((await service.tick()).status, "already_claimed");
+  assert.equal(calls.filter(([name]) => name === "startCampaign").length, 1);
 });
 
 test("durable message ID and sending state precede the first campaign request", async () => {
   const { service, calls } = setup();
   assert.equal((await service.tick()).status, "accepted");
   assert.deepEqual(calls.map(([name]) => name), [
-    "claim", "read", "preparing", "createMessage", "draft", "sending", "startCampaign", "accepted",
+    "read", "claim", "preparing", "createMessage", "draft", "sending", "startCampaign", "accepted",
   ]);
-  assert.deepEqual(calls[0][1], { ...window, topicId: "ai", listId: 88, mode: "test" });
+  assert.deepEqual(calls[1][1], { ...window, topicId: "ai", listId: 88, mode: "test" });
   assert.equal(calls[4][2].messageId, 12);
   assert.equal(calls.at(-1)[2].campaignId, 13);
 });
@@ -264,7 +277,7 @@ test("durable message ID and sending state precede the first campaign request", 
 test("claim loss and persistence errors before sending never launch a campaign", async () => {
   const duplicate = setup({ claim: () => false });
   assert.equal((await duplicate.service.tick()).status, "already_claimed");
-  assert.deepEqual(duplicate.calls.map(([name]) => name), ["claim"]);
+  assert.deepEqual(duplicate.calls.map(([name]) => name), ["read", "claim"]);
   for (const failState of ["preparing", "draft", "sending"]) {
     const { service, calls } = setup({ transition: (state) => {
       if (state === failState) throw new Error(apiKey);
