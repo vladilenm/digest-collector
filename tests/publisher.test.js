@@ -310,3 +310,14 @@ test("a tick that crosses midnight before sending cannot replay yesterday's wind
   assert.equal((await service.tick()).status, "failed");
   assert.equal(calls.some(([name]) => name === "startCampaign"), false);
 });
+
+
+test("a journaled period never rereads sources or refetches media", async () => {
+  const service = createCommonDigestPublisher({
+    config, now,
+    repository: { isClaimed: async (key) => { assert.equal(key.sendDate, window.sendDate); return true; } },
+    digestReader: { range: async () => { assert.fail("must not reread source"); } },
+    refreshMedia: async () => { assert.fail("must not refetch media"); },
+  });
+  assert.equal((await service.tick()).status, "already_claimed");
+});

@@ -31,8 +31,10 @@ test("campaign journal claims once across connections, isolates test and public,
     await session.query("SET ROLE codex_unisender_journal_test");
     const journal = createUnisenderCampaignRepository(session);
     const parallel = createUnisenderCampaignRepository(owner);
+    assert.equal(await journal.isClaimed(key), false);
     const claims = await Promise.all([journal.claim(key), parallel.claim(key)]);
     assert.equal(claims.filter(Boolean).length, 1);
+    assert.equal(await journal.isClaimed(key), true);
     await journal.transition(key, "preparing", "preparing", fields);
     await journal.transition(key, "preparing", "draft", { messageId: 12 });
     await journal.transition(key, "draft", "sending");

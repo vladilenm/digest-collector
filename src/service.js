@@ -40,14 +40,15 @@ export function createCommonDigestPublisher({
 
     // Source availability is checked before claiming: an unfinished LLM run must
     // not consume the send slot, and it must never fall back to daily issues.
+    const key = { ...window, topicId: config.topicId, listId: config.listId, mode: config.mode };
     let prepared;
     try {
+      if (await repository.isClaimed?.(key)) return summary("already_claimed");
       prepared = await prepare(window);
       if (!prepared) return summary("awaiting_issue");
     } catch {
       return summary("failed");
     }
-    const key = { ...window, topicId: config.topicId, listId: config.listId, mode: config.mode };
     try {
       if (!(await repository.claim(key))) return summary("already_claimed");
     } catch {

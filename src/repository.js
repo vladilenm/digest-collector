@@ -7,6 +7,13 @@ const identity = ({ topicId, listId, sendDate, mode }) => [topicId, listId, send
 
 export function createUnisenderCampaignRepository(pool) {
   return {
+    async isClaimed(key) {
+      const result = await pool.query(
+        "SELECT 1 FROM newsletter.unisender_campaigns WHERE topic_id=$1 AND list_id=$2 AND send_date=$3 AND mode=$4",
+        identity(key),
+      );
+      return result.rowCount > 0;
+    },
     async claim(key) {
       const result = await pool.query(
         `INSERT INTO newsletter.unisender_campaigns (topic_id, list_id, send_date, mode, from_date, to_date)
