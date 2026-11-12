@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "issueType": "email-period",
+  "issueId": "2ccaa8d3-de54-49a6-8401-566b4abde004",
+  "topic": {
+    "id": "ai",
+    "title": "Главное об ИИ",
+    "language": "ru"
+  },
+  "period": {
+    "fromDate": "2026-11-09",
+    "toDate": "2026-11-11",
+    "timezone": "Europe/Moscow",
+    "startAt": "2026-11-08T21:00:00.000Z",
+    "endBefore": "2026-11-11T21:00:00.000Z"
+  },
+  "preparedAt": "2026-11-12T07:00:00.000Z",
+  "model": "openai/gpt-6.1-terra",
+  "status": "ready",
+  "inputCoverage": {
+    "basis": "source-archive",
+    "materialCount": 1,
+    "datesWithMaterials": [
+      "2026-11-09"
+    ],
+    "missingDates": [
+      "2026-11-10",
+      "2026-11-11"
+    ]
+  },
+  "cards": [
+    {
+      "cardId": "card-1234567890abcdef12345678",
+      "title": "Эксперимент с работой без сети",
+      "claimKind": "experiment",
+      "sentences": [
+        "В экспериментальном выпуске инструмент работает без подключения к интернету.",
+        "Пока поддерживается только Linux."
+      ],
+      "materialIds": [
+        "mat-8fbd9923f48ac3f949f3e3cb7fd60535b44539e19c62f46e40c5e3e57e6243f4"
+      ],
+      "sources": [
+        {
+          "url": "https://example.com/research/offline",
+          "label": "example.com"
+        }
+      ],
+      "image": {
+        "url": "https://example.com/offline.jpg",
+        "sourceUrl": "https://example.com/research/offline",
+        "checkedAt": "2026-11-12T07:00:00.000Z",
+        "status": "available"
+      },
+      "videos": []
+    }
+  ]
+}

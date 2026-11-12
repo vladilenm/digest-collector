@@ -1,3 +1,4 @@
+import { NewsletterIssueSchema } from "./newsletter-contract.js";
 import { Pool } from "pg";
 import { PublishedDigestSchema } from "./contract.js";
 import { postgresOptions } from "./postgres.js";
@@ -70,13 +71,11 @@ export function createDigestReader(
     return pool;
   };
   const mapRow = (row) =>
-    normalizePublishedDigest(row.document, {
+    normalizeNewsletter(row.document, {
       topicId: config.topicId,
-      digestId: row.digest_id,
-      publicationDate:
-        typeof row.publication_date === "string"
-          ? row.publication_date
-          : row.publication_date?.toISOString().slice(0, 10),
+      issueId: row.issue_id,
+      fromDate: row.from_date,
+      toDate: row.to_date,
     });
   return {
     configured,
@@ -90,16 +89,28 @@ export function createDigestReader(
         throw new Error("invalid_digest_window");
       if (!configured) return [];
       const { rows } = await getPool().query(
-        `SELECT digest_id, publication_date::text, document
-        FROM digest.published_issue_source WHERE topic_id = $1
-          AND publication_date >= $2::date AND publication_date <= $3::date
-        ORDER BY publication_date DESC, generated_at DESC, digest_id DESC LIMIT 8`,
+        `SELECT issue_id, from_date::text, to_date::text, document
+        FROM digest.newsletter_issue_source_v1 WHERE topic_id = $1
+          AND from_date = $2::date AND to_date = $3::date
+          AND issue_type = 'email-period' AND schema_version = 1`,
         [config.topicId, fromDate, toDate],
       );
-      return rows.map(mapRow);
+      if (rows.length > 1) throw new Error("ambiguous_newsletter_period");
+      return rows.map((row) => {
+        if (row.from_date !== fromDate || row.to_date !== toDate) throw new Error("newsletter_period_mismatch");
+        return mapRow(row);
+      });
     },
     async close() {
       if (pool && !injectedPool) await pool.end();
     },
   };
+}
+
+export function normalizeNewsletter(input, { topicId, issueId, fromDate, toDate } = {}) {
+  const document = NewsletterIssueSchema.parse(input);
+  if ((topicId && document.topic.id !== topicId) || (issueId && document.issueId !== issueId) ||
+      (fromDate && document.period.fromDate !== fromDate) || (toDate && document.period.toDate !== toDate))
+    throw new Error("newsletter_identity_mismatch");
+  return document;
 }

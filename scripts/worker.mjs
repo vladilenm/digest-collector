@@ -19,7 +19,7 @@ if ([...args].some((arg) => !["--once", "--dry-run"].includes(arg))) {
     runtime = createUnisenderPublisherRuntime(config, { dryRun, onPoolError: (category) => console.error(category) });
     while (!controller.signal.aborted) {
       const result = await runtime.tick({ signal: controller.signal });
-      if (once || !["not_due", "already_claimed"].includes(result.status))
+      if (once || !["not_due", "already_claimed", "awaiting_issue"].includes(result.status))
         console.info(JSON.stringify(result));
       if (result.status === "invalid_config" ||
         (result.status === "disabled" && config.provider === "unisender" && config.campaignsEnabled) ||

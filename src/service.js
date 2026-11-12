@@ -1,22 +1,20 @@
 import { isCampaignStatus, UnisenderError } from "./client.js";
 import { isProviderId } from "./config.js";
 import { renderCommonDigest } from "./render.js";
-import { commonWindow, validIsoDate } from "./schedule.js";
+import { normalizeNewsletter } from "./source.js";
+import { commonWindow } from "./schedule.js";
 
-const digestId = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 
 export function createCommonDigestPublisher({
   config, repository, digestReader, client, render = renderCommonDigest,
-  now = () => new Date(),
+  now = () => new Date(), refreshMedia = async (issue) => issue,
 }) {
   async function prepare({ fromDate, toDate }) {
     const issues = await digestReader.range({ fromDate, toDate });
-    if (!Array.isArray(issues) || issues.some((issue) =>
-      issue?.topicId !== config.topicId || !validIsoDate(issue.publicationDate) ||
-      issue.publicationDate < fromDate || issue.publicationDate > toDate ||
-      !digestId.test(issue.digestId) || !Array.isArray(issue.items)))
-      throw new Error("invalid_digest_source");
-    return render({ issues, fromDate, toDate });
+    if (!Array.isArray(issues) || issues.length > 1) throw new Error("invalid_newsletter_source");
+    if (!issues.length) return null;
+    normalizeNewsletter(issues[0], { topicId: config.topicId, fromDate, toDate });
+    return render({ issues: [await refreshMedia(issues[0])], fromDate, toDate });
   }
 
   async function tick({ dryRun = false, signal } = {}) {
@@ -31,6 +29,7 @@ export function createCommonDigestPublisher({
     if (dryRun) {
       try {
         const prepared = await prepare(window);
+        if (!prepared) return summary("awaiting_issue");
         issueCount = prepared.issueIds.length;
         itemCount = prepared.itemCount;
         return summary(itemCount ? "preview" : "skipped");
@@ -39,6 +38,15 @@ export function createCommonDigestPublisher({
       }
     }
 
+    // Source availability is checked before claiming: an unfinished LLM run must
+    // not consume the send slot, and it must never fall back to daily issues.
+    let prepared;
+    try {
+      prepared = await prepare(window);
+      if (!prepared) return summary("awaiting_issue");
+    } catch {
+      return summary("failed");
+    }
     const key = { ...window, topicId: config.topicId, listId: config.listId, mode: config.mode };
     try {
       if (!(await repository.claim(key))) return summary("already_claimed");
@@ -58,7 +66,6 @@ export function createCommonDigestPublisher({
     let messageId;
     let campaign;
     try {
-      const prepared = await prepare(window);
       const { issueIds, contentHash } = prepared;
       issueCount = issueIds.length;
       itemCount = prepared.itemCount;

@@ -1,4 +1,5 @@
 import pg from "pg";
+import { refreshNewsletterMedia } from "./media.js";
 import { createDigestReader } from "./source.js";
 import { createUnisenderClient } from "./client.js";
 import { createUnisenderCampaignRepository } from "./repository.js";
@@ -23,7 +24,7 @@ export function createUnisenderPublisherRuntime(config, { dryRun = false, onPool
     ? createUnisenderCampaignRepository(createPool({ ...config.journalDb, options: "-c synchronous_commit=on" }, "unisender_journal_pool_error"))
     : undefined;
   const client = active && !dryRun ? createUnisenderClient(config) : undefined;
-  const publisher = createCommonDigestPublisher({ config, repository, digestReader: reader, client });
+  const publisher = createCommonDigestPublisher({ config, repository, digestReader: reader, client, refreshMedia: refreshNewsletterMedia });
   return {
     tick: ({ signal } = {}) => publisher.tick({ dryRun, signal }),
     async close() {
