@@ -7,4 +7,4 @@ COPY --chown=node:node src ./src
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node database ./database
 USER node
-CMD ["node", "scripts/worker.mjs"]
+CMD ["node", "scripts/container.mjs"]
