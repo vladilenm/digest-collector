@@ -58,6 +58,45 @@ test("uncertainty, stale workers, future periods and zero delivered are distinct
     "Нет связи с журналом",
   );
 });
+test("retry requires a proven pre-dispatch stop or a declined campaign without any sends", () => {
+  const data = state();
+  const canSend = (campaign) => {
+    data.sender.campaign = campaign;
+    return operationAllowed("send", data, "2026-11-12", now);
+  };
+  const declined = {
+    state: "failed",
+    campaign_id: 81,
+    provider_status: "declined",
+    sent_count: 0,
+    delivered_count: 0,
+    has_observed_sends: false,
+  };
+  assert.equal(canSend(declined), true);
+  assert.equal(
+    summary(data, "2026-11-12", now).sending[0],
+    "Отклонено модератором",
+  );
+  for (const change of [
+    { sent_count: null },
+    { delivered_count: null },
+    { sent_count: 2 },
+    { has_observed_sends: true },
+    { provider_status: "canceled" },
+    { provider_status: "stopped" },
+  ])
+    assert.equal(canSend({ ...declined, ...change }), false);
+  for (const failure_code of [
+    "window_closed",
+    "command_inactive_before_dispatch",
+  ]) {
+    assert.equal(canSend({ state: "failed", failure_code }), true);
+  }
+  assert.equal(
+    canSend({ state: "uncertain", failure_code: "unisender_timeout" }),
+    false,
+  );
+});
 test("public panel requires HTTPS and explicit audience; local and production use distinct cookies", () => {
   const env = {
     CONTROL_ORIGIN: "http://127.0.0.1:8080",
@@ -134,6 +173,7 @@ test("owner signs in, reviews a missed edition, confirms and queues exactly one 
     password: "local-test-password",
   });
   assert.equal(signed.status, 303);
+  assert.equal(signed.headers.get("referrer-policy"), "same-origin");
   const cookie = signed.headers.get("set-cookie").split(";")[0];
   const markup = await (
     await get("/?date=2026-11-12", { Cookie: cookie })

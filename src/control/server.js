@@ -69,7 +69,7 @@ export function createControlServer({ cfg, store, clock = () => new Date() }) {
       "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
     res.setHeader("Content-Security-Policy", csp);
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     const send = (code, html, type = "text/html; charset=utf-8") => {

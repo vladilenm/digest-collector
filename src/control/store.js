@@ -52,7 +52,7 @@ export function createControlStore(config, source, journal) {
       one(
         journal,
         `SELECT state,failure_code,rejection_code,message_id,campaign_id,provider_status,updated_at,
-        attempt,delivered_count,stats_checked_at,report_url FROM newsletter.unisender_campaigns
+        attempt,sent_count,has_observed_sends,delivered_count,stats_checked_at,report_url FROM newsletter.unisender_campaigns
         WHERE topic_id=$1 AND list_id=$2 AND mode=$3 AND send_date=$4`,
         params,
       ),

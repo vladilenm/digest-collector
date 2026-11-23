@@ -153,8 +153,10 @@ export function dashboard({ csrf, cfg, period, data, now }) {
       "Начало · " + stamp(prep.preparation.started_at),
     prep?.preparation?.state === "failed" &&
       "Ошибка · " + stamp(prep.preparation.updated_at),
-    (issue?.preparedAt || prep?.lastSuccess) &&
-      "Готово · " + stamp(issue?.preparedAt || prep.lastSuccess),
+    issue?.preparedAt
+      ? "Готово · " + stamp(issue.preparedAt)
+      : prep?.lastSuccess &&
+        "Предыдущий успешный выпуск · " + stamp(prep.lastSuccess),
   ]
     .filter(Boolean)
     .join(". ");

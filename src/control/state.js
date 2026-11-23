@@ -35,15 +35,29 @@ export function operationAllowed(action, { prep, sender }, date, now) {
     !prep.issue.cards.length
   )
     return false;
+  if (!row) return true;
+  if (row.state !== "failed") return false;
+  if (!row.campaign_id)
+    return [
+      "unisender_rejected",
+      "window_closed",
+      "command_inactive_before_dispatch",
+    ].includes(row.failure_code);
   return (
-    !row ||
-    (row.state === "failed" &&
-      row.failure_code === "unisender_rejected" &&
-      !row.campaign_id)
+    row.provider_status === "declined" &&
+    row.sent_count === 0 &&
+    row.delivered_count === 0 &&
+    row.has_observed_sends === false
   );
 }
 
 const reasons = {
+  command_inactive_before_dispatch:
+    "Команда истекла до передачи кампании. Отправку можно подтвердить заново.",
+  retry_unverified:
+    "Не удалось подтвердить, что ни одного письма не отправлено. Сначала сверь кампанию.",
+  match_incomplete:
+    "Unisender вернул неполный список кампаний. Исход отправки требует сверки.",
   WORKER_INTERRUPTED:
     "Процесс остановился во время подготовки. После восстановления можно повторить.",
   INVALID_SEND_DATE: "Дата не соответствует графику подготовки.",
@@ -144,13 +158,24 @@ export function summary({ prep, sender }, date, now) {
     skipped: ["Отправка пропущена", "quiet"],
     accepted: ["Принято Unisender", "good"],
   };
+  const providerStops = {
+    declined: ["Отклонено модератором", "bad"],
+    stopped: ["Кампания остановлена", "bad"],
+    canceled: ["Кампания отменена", "bad"],
+  };
   const sending = !sender
     ? ["Нет связи с журналом", "bad"]
     : active(sender.request)
       ? ["Команда в работе", "wait"]
       : row
-        ? deliveryStates[row.state] || ["Статус неизвестен", "quiet"]
-        : ["Кампания ещё не создана", "quiet"];
+        ? providerStops[row.provider_status] ||
+          deliveryStates[row.state] || ["Статус неизвестен", "quiet"]
+        : [
+            eligibleAt(date, 10, now)
+              ? "Кампания ещё не создана"
+              : "По расписанию в 10:00",
+            "quiet",
+          ];
   const stats =
     row?.delivered_count != null
       ? [
