@@ -8,12 +8,28 @@ const definitiveRejections = new Set([
 ]);
 export const isCampaignStatus = (value) => value === "scheduled" || value === "waits_censor";
 
+const reportStatuses = new Set([
+  "waits_censor", "censor_hold", "declined", "waits_schedule", "scheduled",
+  "in_progress", "analysed", "completed", "stopped", "canceled",
+]);
+const providerTime = (date) => date.toISOString().slice(0, 19).replace("T", " ");
+
+function reportUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password && !url.port &&
+        (url.hostname === "unisender.com" || url.hostname.endsWith(".unisender.com"))) return url.href;
+  } catch { /* Missing or untrusted report link. */ }
+  return null;
+}
+
 export class UnisenderError extends Error {
-  constructor(code, { ambiguous = true, campaignId, messageId } = {}) {
+  constructor(code, { ambiguous = true, campaignId, messageId, rejectionCode } = {}) {
     super(code);
     this.ambiguous = ambiguous;
     this.campaignId = campaignId;
     this.messageId = messageId;
+    this.rejectionCode = rejectionCode;
   }
 }
 
@@ -75,8 +91,8 @@ export function createUnisenderClient(config, { fetchImpl = fetch, timeoutMs = 4
           ? data.result.message_id : undefined;
         if (data.code === "campaign_already_exists")
           throw new UnisenderError("unisender_campaign_exists", { campaignId });
-        if (!campaignId && !messageId && definitiveRejections.has(data.code))
-          throw new UnisenderError("unisender_rejected", { ambiguous: false });
+        if (data.result?.campaign_id == null && data.result?.message_id == null && definitiveRejections.has(data.code))
+          throw new UnisenderError("unisender_rejected", { ambiguous: false, rejectionCode: data.code });
         throw new UnisenderError("unisender_provider_error", { campaignId, messageId });
       }
       return data.result;
@@ -87,6 +103,53 @@ export function createUnisenderClient(config, { fetchImpl = fetch, timeoutMs = 4
   }
 
   return {
+    async findCampaign({ messageId, campaignId, listId, from, to }) {
+      assertAllowed();
+      if (!isProviderId(messageId) || listId !== config.listId || (campaignId != null && !isProviderId(campaignId)))
+        return { code: "match_missing" };
+      const matches = new Map();
+      const limit = 25;
+      // If the scan cannot finish within ten pages, uniqueness cannot be established.
+      for (let offset = 0; offset < 10 * limit; offset += limit) {
+        const rows = await post("getCampaigns", {
+          from: providerTime(from), to: providerTime(to), limit: String(limit), offset: String(offset),
+        });
+        if (!Array.isArray(rows) || rows.length > limit) throw new UnisenderError("unisender_invalid_response");
+        for (const row of rows) {
+          if (!row || !isProviderId(row.id) || !isProviderId(row.list_id) || !isProviderId(row.message_id))
+            throw new UnisenderError("unisender_invalid_response");
+          if (row.list_id !== listId || row.message_id !== messageId || (campaignId && row.id !== campaignId)) continue;
+          matches.set(row.id, { campaignId: row.id, providerStatus: row.status, reportUrl: reportUrl(row.stats_url) });
+        }
+        if (matches.size > 1) return { code: "match_ambiguous" };
+        if (rows.length < limit) {
+          if (!matches.size) return { code: "match_missing" };
+          const match = matches.values().next().value;
+          if (!reportStatuses.has(match.providerStatus)) throw new UnisenderError("unisender_invalid_response");
+          return { code: "matched", ...match };
+        }
+      }
+      return { code: "match_incomplete" };
+    },
+    async campaignStatus(campaignId) {
+      assertAllowed();
+      if (!isProviderId(campaignId)) throw new UnisenderError("unisender_invalid_campaign_id");
+      const result = await post("getCampaignStatus", { campaign_id: String(campaignId) });
+      if (!reportStatuses.has(result?.status)) throw new UnisenderError("unisender_invalid_response");
+      return result.status;
+    },
+    async campaignStats(campaignId) {
+      assertAllowed();
+      if (!isProviderId(campaignId)) throw new UnisenderError("unisender_invalid_campaign_id");
+      const result = await post("getCampaignCommonStats", { campaign_id: String(campaignId) });
+      function count(value) {
+        if (value == null) return null;
+        if (!Number.isInteger(value) || value < 0 || value > 2_147_483_647)
+          throw new UnisenderError("unisender_invalid_response");
+        return value;
+      }
+      return { delivered: count(result?.delivered), sent: count(result?.sent) };
+    },
     async createMessage({ subject, html, text }) {
       assertAllowed();
       const result = await post("createEmailMessage", {

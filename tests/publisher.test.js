@@ -132,6 +132,7 @@ test("campaign client refuses a foreign address and omits contacts only with the
 test("provider errors are sanitized and uncertain replies are never retried", async () => {
   for (const [fetchResult, message, ambiguous, campaignId] of [
     [() => json({ error: apiKey, code: "invalid_arg" }), "unisender_rejected", false],
+    [() => json({ error: apiKey, code: "invalid_arg", result: { campaign_id: "13" } }), "unisender_provider_error", true],
     [() => json({ error: apiKey, code: "retry_later" }), "unisender_provider_error", true],
     [() => json({ error: apiKey, code: "new_code", result: { campaign_id: 13 } }), "unisender_provider_error", true, 13],
     [() => json({ error: apiKey, code: "campaign_already_exists" }), "unisender_campaign_exists", true],
@@ -320,4 +321,23 @@ test("a journaled period never rereads sources or refetches media", async () => 
     refreshMedia: async () => { assert.fail("must not refetch media"); },
   });
   assert.equal((await service.tick()).status, "already_claimed");
+});
+
+test("manual backfill uses the original window and refuses off-cycle and early dates", async () => {
+  const missed = setup({ clock: () => new Date("2027-01-10T06:00:00Z") });
+  assert.equal((await missed.service.tick({ sendDate: window.sendDate })).status, "accepted");
+  assert.deepEqual(missed.calls[1][1], { ...window, topicId: "ai", listId: 88, mode: "test" });
+  for (const date of ["2027-01-03", "2027-01-11", "2026-12-27", "bad", null]) {
+    assert.equal((await missed.service.tick({ sendDate: date })).status, "not_due");
+  }
+  const early = setup({ clock: () => new Date("2027-01-02T06:59:59Z") });
+  assert.equal((await early.service.tick({ sendDate: window.sendDate })).status, "not_due");
+  const stale = setup();
+  assert.equal((await stale.service.tick({ sendDate: window.sendDate, requestActive: async () => false })).status, "worker_stale");
+  assert.deepEqual(stale.calls.map(([stage]) => stage), ["read"]);
+  const held = setup();
+  let freshReads = 0;
+  assert.equal((await held.service.tick({ sendDate: window.sendDate, requestActive: async () => ++freshReads < 3 })).status, "failed");
+  assert.equal(held.calls.some(([stage]) => stage === "startCampaign"), false);
+  assert.equal(held.calls.at(-1)[2].failureCode, "command_inactive_before_dispatch");
 });

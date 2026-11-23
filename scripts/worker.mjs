@@ -12,11 +12,13 @@ if ([...args].some((arg) => !["--once", "--dry-run"].includes(arg))) {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   let runtime;
+  let controlTask;
   try {
     const config = readUnisenderPublisherConfig();
     const dryRun = args.has("--dry-run");
     const once = dryRun || args.has("--once");
     runtime = createUnisenderPublisherRuntime(config, { dryRun, onPoolError: (category) => console.error(category) });
+    if (!once) controlTask = runtime.runControl(controller.signal);
     while (!controller.signal.aborted) {
       const result = await runtime.tick({ signal: controller.signal });
       if (once || !["not_due", "already_claimed", "awaiting_issue"].includes(result.status))
@@ -33,7 +35,9 @@ if ([...args].some((arg) => !["--once", "--dry-run"].includes(arg))) {
     console.error("unisender_worker_failed");
     process.exitCode = 1;
   } finally {
+    controller.abort();
     try {
+      await controlTask;
       await runtime?.close();
     } catch {
       console.error("unisender_shutdown_failed");

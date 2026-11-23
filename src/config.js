@@ -28,6 +28,7 @@ export function readUnisenderPublisherConfig(env = process.env) {
   const listId = idPattern.test(env.UNISENDER_LIST_ID) ? Number(env.UNISENDER_LIST_ID) : null;
   const config = {
     provider: env.NEWSLETTER_PROVIDER || "unisender",
+    controlEnabled: env.NEWSLETTER_CONTROL_ENABLED === "true",
     campaignsEnabled: env.UNISENDER_CAMPAIGNS_ENABLED === "true",
     publicDeliveryEnabled: env.UNISENDER_PUBLIC_DELIVERY_ENABLED === "true",
     accountReady: env.UNISENDER_ACCOUNT_READY === "true",
