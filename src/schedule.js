@@ -14,13 +14,19 @@ export function validIsoDate(value) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function commonWindow(now, firstSendDate) {
+export function selectedSendWindow(now, firstSendDate, selectedDate) {
   if (!validIsoDate(firstSendDate)) throw new Error("invalid_first_send_date");
   const parts = Object.fromEntries(moscow.formatToParts(now).map(({ type, value }) => [type, value]));
-  const sendDate = `${parts.year.padStart(4, "0")}-${parts.month}-${parts.day}`;
+  const today = `${parts.year.padStart(4, "0")}-${parts.month}-${parts.day}`;
+  const sendDate = selectedDate === undefined ? today : selectedDate;
+  if (!validIsoDate(sendDate) || sendDate > today || (sendDate === today && Number(parts.hour) < 10)) return null;
   const day = Date.parse(sendDate);
   const elapsed = (day - Date.parse(firstSendDate)) / dayMs;
-  if (Number(parts.hour) < 10 || elapsed < 0 || elapsed % 3 !== 0) return null;
+  if (elapsed < 0 || elapsed % 3 !== 0) return null;
   const offset = (days) => new Date(day + days * dayMs).toISOString().slice(0, 10);
   return { sendDate, fromDate: offset(-3), toDate: offset(-1) };
+}
+
+export function commonWindow(now, firstSendDate) {
+  return selectedSendWindow(now, firstSendDate);
 }
