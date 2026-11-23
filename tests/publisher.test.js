@@ -339,4 +339,5 @@ test("manual backfill uses the original window and refuses off-cycle and early d
   let freshReads = 0;
   assert.equal((await held.service.tick({ sendDate: window.sendDate, requestActive: async () => ++freshReads < 3 })).status, "failed");
   assert.equal(held.calls.some(([stage]) => stage === "startCampaign"), false);
+  assert.equal(held.calls.at(-1)[2].failureCode, "command_inactive_before_dispatch");
 });

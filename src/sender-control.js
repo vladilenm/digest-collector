@@ -75,9 +75,11 @@ export function createSenderControlRepository(pool, { topicId, listId, mode }) {
       // cannot repeatedly poll one campaign. Explicit operator checks remain available.
       const result = await query(`WITH picked AS (
         SELECT send_date FROM newsletter.unisender_campaigns WHERE ${scope}
-          AND state='accepted' AND attempt_started_at >= now() - interval '7 days'
-          AND (provider_status <> 'completed' OR delivered_count IS NULL)
-          AND (stats_attempted_at IS NULL OR stats_attempted_at < now() - interval '15 minutes')
+          AND state='accepted'
+          AND ((provider_status='completed' AND final_stats_checked_at IS NULL)
+            OR (provider_status <> 'completed' AND attempt_started_at >= now() - interval '7 days'))
+          AND (stats_attempted_at IS NULL OR stats_attempted_at < now() -
+            CASE WHEN attempt_started_at < now() - interval '7 days' THEN interval '1 day' ELSE interval '15 minutes' END)
         ORDER BY stats_attempted_at NULLS FIRST, send_date DESC LIMIT 1 FOR UPDATE SKIP LOCKED)
         UPDATE newsletter.unisender_campaigns SET stats_attempted_at=clock_timestamp() WHERE ${scope}
         AND send_date=(SELECT send_date FROM picked) RETURNING ${campaignColumns}`);
@@ -88,6 +90,7 @@ export function createSenderControlRepository(pool, { topicId, listId, mode }) {
       const result = await query(
         `UPDATE newsletter.unisender_campaigns SET campaign_id=$6,
         provider_status=$7, report_url=COALESCE($8, report_url), state=$9, failure_code=$10,
+        final_stats_checked_at=CASE WHEN provider_status='completed' AND $7='completed' THEN final_stats_checked_at END,
         updated_at=now()
         WHERE ${scope} AND send_date=$4 AND attempt=$5 AND state IN ${inspectable}
           AND stats_attempted_at=$11::timestamptz AND (campaign_id IS NULL OR campaign_id=$6)
@@ -103,15 +106,19 @@ export function createSenderControlRepository(pool, { topicId, listId, mode }) {
       );
       return result.rowCount === 1;
     },
-    async recordDelivered(row, campaignId, delivered) {
+    async recordDelivered(row, campaignId, { delivered, sent }) {
       const result = await query(
-        `UPDATE newsletter.unisender_campaigns SET delivered_count=$7,stats_checked_at=now()
+        `UPDATE newsletter.unisender_campaigns SET delivered_count=COALESCE($7, delivered_count),sent_count=$9,
+          stats_checked_at=CASE WHEN $7::integer IS NOT NULL THEN now() ELSE stats_checked_at END,
+          has_observed_sends=has_observed_sends OR COALESCE($7 > 0,false) OR COALESCE($9::integer > 0,false),
+          final_stats_checked_at=CASE WHEN provider_status='completed' AND $7 IS NOT NULL THEN now() ELSE final_stats_checked_at END
         WHERE ${scope} AND send_date=$4 AND attempt=$5 AND campaign_id=$6 AND stats_attempted_at=$8::timestamptz`,
         row.send_date,
         row.attempt,
         campaignId,
         delivered,
         row.stats_token,
+        sent,
       );
       return result.rowCount === 1;
     },
@@ -145,8 +152,11 @@ export async function reconcileCampaign({ row, control, client, listId, now = ()
     if (!(await control.recordStatus(row, campaignId, providerStatus, reportUrl))) return "campaign_changed";
     // Persist the association before a second provider request: delivery reports
     // can be temporarily unavailable while the campaign is already visible.
-    const delivered = await client.campaignDelivered(campaignId);
-    if (delivered != null && !(await control.recordDelivered(row, campaignId, delivered)))
+    const stats = await client.campaignStats(campaignId);
+    if (
+      (stats.delivered != null || stats.sent != null) &&
+      !(await control.recordDelivered(row, campaignId, stats))
+    )
       return "campaign_changed";
     if (!reportUrl && row.campaign_id) {
       // Report discovery is optional for a known ID. Failure must not erase
@@ -154,7 +164,7 @@ export async function reconcileCampaign({ row, control, client, listId, now = ()
       const match = await lookup().catch(() => null);
       if (match?.reportUrl) await control.recordStatus(row, campaignId, providerStatus, match.reportUrl);
     }
-    return delivered == null ? "report_pending" : "checked";
+    return stats.delivered == null ? "report_pending" : "checked";
   } catch (error) {
     return error instanceof UnisenderError ? "provider_unavailable" : "journal_unavailable";
   }

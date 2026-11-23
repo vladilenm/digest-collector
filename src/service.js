@@ -50,9 +50,30 @@ export function createCommonDigestPublisher({
       return summary("failed");
     }
     try {
+      let verifiedCampaignId = null;
+      if (retryAttempt) {
+        const candidate = await repository.retryCandidate(key, retryAttempt);
+        if (!candidate) return summary("already_claimed");
+        if (candidate.campaign_id != null) {
+          // Moderation can follow a trial batch. Even a final decline cannot
+          // authorize a full-list retry unless Unisender confirms zero sends.
+          let stats;
+          try {
+            const status = await client.campaignStatus(candidate.campaign_id);
+            if (status !== "declined") return summary("retry_unverified");
+            stats = await client.campaignStats(candidate.campaign_id);
+          } catch {
+            return summary("provider_unavailable");
+          }
+          if (stats.sent > 0 || stats.delivered > 0)
+            await repository.rememberDispatch(key, retryAttempt, candidate.campaign_id);
+          if (stats.sent !== 0 || stats.delivered !== 0) return summary("retry_unverified");
+          verifiedCampaignId = candidate.campaign_id;
+        }
+      }
       if (requestActive && !(await requestActive())) return summary("worker_stale");
       const claimed = retryAttempt
-        ? await repository.claimRejected(key, retryAttempt)
+        ? await repository.claimRejected(key, retryAttempt, verifiedCampaignId)
         : await repository.claim(key);
       if (!claimed) return summary("already_claimed");
     } catch {
@@ -64,9 +85,14 @@ export function createCommonDigestPublisher({
       await repository.transition(key, state, next, fields);
       state = next;
     };
-    const canContinue = async () => !signal?.aborted &&
-      selectedSendWindow(now(), config.firstSendDate, sendDate)?.sendDate === window.sendDate &&
-      (!requestActive || await requestActive());
+    async function assertCanDispatch() {
+      if (signal?.aborted || selectedSendWindow(now(), config.firstSendDate, sendDate)?.sendDate !== window.sendDate)
+        throw new Error("window_closed");
+      if (requestActive) {
+        phase = "command_inactive_before_dispatch";
+        if (!(await requestActive())) throw new Error(phase);
+      }
+    }
     let phase = "source_failed";
     let messageId;
     let campaign;
@@ -81,7 +107,7 @@ export function createCommonDigestPublisher({
       }
       await advance("preparing", { issueIds, contentHash });
       phase = "window_closed";
-      if (!(await canContinue())) throw new Error(phase);
+      await assertCanDispatch();
       phase = "draft_request_failed";
       messageId = await client.createMessage(prepared);
       if (!isProviderId(messageId)) {
@@ -92,7 +118,7 @@ export function createCommonDigestPublisher({
       await advance("draft", { messageId });
       await advance("sending");
       phase = "window_closed";
-      if (!(await canContinue())) throw new Error(phase);
+      await assertCanDispatch();
       phase = "campaign_request_failed";
       const result = await client.startCampaign({ messageId });
       if (!isProviderId(result?.campaignId) || !isCampaignStatus(result?.providerStatus))

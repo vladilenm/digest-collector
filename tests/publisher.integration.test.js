@@ -127,7 +127,7 @@ test(
         const grants = await readFile(new URL(`../database/${file}.sql`, import.meta.url), "utf8");
         await owner.query(grants.replaceAll(`:"${variable}"`, role));
       }
-      for (const table of ["sender_health", "operator_requests", "unisender_campaigns"])
+      for (const table of ["sender_health", "operator_requests", "unisender_attempt_history", "unisender_campaigns"])
         await owner.query(`DELETE FROM newsletter.${table} WHERE topic_id=$1`, [topicId]);
       await runtime.query(`SET ROLE ${runtimeRole}`);
       await panel.query(`SET ROLE ${panelRole}`);
@@ -241,7 +241,7 @@ test(
               providerStatus: "in_progress",
               reportUrl: "https://app.unisender.com/report",
             }),
-            campaignDelivered: async () => 0,
+            campaignStats: async () => ({sent: 0, delivered: 0}),
           },
         }),
         "checked",
@@ -263,7 +263,7 @@ test(
       const older = reports.find(Boolean);
       const accepted = await control.campaign(sendDate);
       assert.equal(await control.recordStatus(older, 44, "in_progress", null), false);
-      assert.equal(await control.recordDelivered(older, 44, 9), false);
+      assert.equal(await control.recordDelivered(older, 44, {sent: 11, delivered: 9}), false);
       assert.equal(
         await reconcileCampaign({
           row: accepted,
@@ -271,7 +271,7 @@ test(
           listId: config.listId,
           client: {
             campaignStatus: async () => "declined",
-            campaignDelivered: async () => null,
+            campaignStats: async () => ({sent: null, delivered: null}),
           },
         }),
         "report_pending",
@@ -289,6 +289,97 @@ test(
         campaign_id: 44,
         delivered_count: 0,
       });
+      const prior = (
+        await panel.query(
+          "SELECT message_id,campaign_id,attempt_started_at,stats_checked_at FROM newsletter.unisender_campaigns WHERE topic_id=$1",
+          [topicId],
+        )
+      ).rows[0];
+      let recheckedStatus = "canceled";
+      let recheckedStats = { sent: null, delivered: 0 };
+      client.campaignStatus = async (id) => {
+        assert.equal(id, 44);
+        return recheckedStatus;
+      };
+      client.campaignStats = async (id) => {
+        assert.equal(id, 44);
+        return recheckedStats;
+      };
+      const declinedOptions = { sendDate, retryAttempt: 3 };
+      assert.equal((await worker.tick(declinedOptions)).status, "retry_unverified");
+      recheckedStatus = "declined";
+      assert.equal((await worker.tick(declinedOptions)).status, "retry_unverified");
+      recheckedStats = { sent: 0, delivered: 0 };
+      // An unavailable archive must leave the old attempt intact and block dispatch.
+      await owner.query(
+        `INSERT INTO newsletter.unisender_attempt_history
+        SELECT c.*,now() FROM newsletter.unisender_campaigns c WHERE topic_id=$1`,
+        [topicId],
+      );
+      assert.equal((await worker.tick(declinedOptions)).status, "failed");
+      assert.equal(sends, 3);
+      assert.equal((await control.campaign(sendDate)).attempt, 3);
+      await owner.query("DELETE FROM newsletter.unisender_attempt_history WHERE topic_id=$1 AND attempt=3", [
+        topicId,
+      ]);
+      const competing = await Promise.all([worker.tick(declinedOptions), auto.tick(declinedOptions)]);
+      assert.deepEqual(competing.map((x) => x.status).sort(), ["already_claimed", "uncertain"]);
+      assert.equal(sends, 4);
+      const archived = (
+        await panel.query(
+          "SELECT message_id,campaign_id,attempt_started_at,stats_checked_at,provider_status,sent_count,delivered_count FROM newsletter.unisender_attempt_history WHERE topic_id=$1 AND attempt=3",
+          [topicId],
+        )
+      ).rows;
+      assert.deepEqual(archived, [
+        { ...prior, provider_status: "declined", sent_count: 0, delivered_count: 0 },
+      ]);
+      await assert.rejects(runtime.query("UPDATE newsletter.unisender_attempt_history SET sent_count=NULL"), {
+        code: "42501",
+      });
+      await assert.rejects(panel.query("DELETE FROM newsletter.unisender_attempt_history"), {
+        code: "42501",
+      });
+
+      // A legacy pre-dispatch guard and the new manual guard are safe only while campaign_id is absent.
+      for (const [index, code] of ["window_closed", "command_inactive_before_dispatch"].entries()) {
+        const attempt = 4 + index;
+        await owner.query(
+          "UPDATE newsletter.unisender_campaigns SET state='failed',failure_code=$2 WHERE topic_id=$1",
+          [topicId, code],
+        );
+        assert.equal((await worker.tick()).status, "already_claimed");
+        assert.equal((await worker.tick({ sendDate, retryAttempt: attempt })).status, "uncertain");
+      }
+      assert.equal(sends, 6);
+      const active = await control.campaign(sendDate);
+      assert.ok(await control.recordStatus(active, 45, "in_progress", null));
+      assert.ok(await control.recordDelivered(active, 45, { sent: 0, delivered: 0 }));
+      async function refresh(status, stats) {
+        await changeClock("unisender_campaigns", "stats_attempted_at", 16 * 60);
+        return reconcileCampaign({
+          row: await control.nextReport(),
+          control,
+          listId: config.listId,
+          client: {
+            campaignStatus: async () => status,
+            campaignStats: async () => {
+              if (!stats) throw new UnisenderError("unisender_timeout");
+              return stats;
+            },
+            findCampaign: async () => ({ code: "match_missing" }),
+          },
+        });
+      }
+      assert.equal(await refresh("completed", null), "provider_unavailable");
+      assert.equal(await refresh("completed", { sent: 13, delivered: 12 }), "checked");
+      await changeClock("unisender_campaigns", "stats_attempted_at", 16 * 60);
+      assert.equal(await control.nextReport(), undefined);
+      const final = await control.campaign(sendDate);
+      assert.ok(await control.recordStatus(final, 45, "declined", null));
+      assert.ok(await control.recordDelivered(final, 45, { sent: 0, delivered: 0 }));
+      // A contradictory zero cannot erase previously observed partial delivery.
+      assert.equal((await worker.tick({ sendDate, retryAttempt: 6 })).status, "already_claimed");
     } finally {
       for (const session of [runtime, panel]) {
         if (session)
@@ -338,6 +429,11 @@ test(
         attempt_started_at: new Date("2026-11-14T12:30:00Z"),
         delivered_count: null,
       });
+      await owner.query(`UPDATE ${schema}.unisender_campaigns SET delivered_count=7`);
+      await apply("005-sender-attempt-history.sql");
+      const upgraded = await owner.query(`SELECT delivered_count,has_observed_sends,final_stats_checked_at
+        FROM ${schema}.unisender_campaigns`);
+      assert.deepEqual(upgraded.rows[0], {delivered_count: 7, has_observed_sends: true, final_stats_checked_at: null});
     } finally {
       await owner.query("ROLLBACK");
       await owner.end();

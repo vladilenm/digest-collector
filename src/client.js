@@ -138,14 +138,17 @@ export function createUnisenderClient(config, { fetchImpl = fetch, timeoutMs = 4
       if (!reportStatuses.has(result?.status)) throw new UnisenderError("unisender_invalid_response");
       return result.status;
     },
-    async campaignDelivered(campaignId) {
+    async campaignStats(campaignId) {
       assertAllowed();
       if (!isProviderId(campaignId)) throw new UnisenderError("unisender_invalid_campaign_id");
       const result = await post("getCampaignCommonStats", { campaign_id: String(campaignId) });
-      if (result?.delivered == null) return null;
-      if (!Number.isInteger(result.delivered) || result.delivered < 0 || result.delivered > 2_147_483_647)
-        throw new UnisenderError("unisender_invalid_response");
-      return result.delivered;
+      function count(value) {
+        if (value == null) return null;
+        if (!Number.isInteger(value) || value < 0 || value > 2_147_483_647)
+          throw new UnisenderError("unisender_invalid_response");
+        return value;
+      }
+      return { delivered: count(result?.delivered), sent: count(result?.sent) };
     },
     async createMessage({ subject, html, text }) {
       assertAllowed();

@@ -92,7 +92,7 @@ test("an ambiguous backfill uses paginated UTC start times, exact message/list, 
   assert.deepEqual(calls, ["getCampaigns", "getCampaigns", "getCampaignCommonStats"]);
   assert.deepEqual(writes, [
     ["status", row, 42, "completed", campaign.stats_url],
-    ["delivered", row, 42, 0],
+    ["delivered", row, 42, { delivered: 0, sent: 13 }],
   ]);
 });
 
